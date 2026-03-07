@@ -13,6 +13,7 @@
         "Typecheck passes"
       ],
       "priority": 1,
+      "plan": "plans/plan-01.md",
       "passes": false,
       "notes": ""
     },
@@ -27,6 +28,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
+      "plan": "plans/plan-02.md",
       "passes": false,
       "notes": ""
     },
@@ -42,6 +44,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
+      "plan": "plans/plan-03.md",
       "passes": false,
       "notes": ""
     },
@@ -57,6 +60,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
+      "plan": "plans/plan-04.md",
       "passes": false,
       "notes": ""
     }

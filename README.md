@@ -18,7 +18,32 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
 ## Setup
 
-### Option 1: Copy to your project
+### Option 1: Quick install (`curl | bash`)
+
+From your project root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ariyn/ralph/main/scripts/install.sh | bash
+```
+
+This bootstraps:
+- `scripts/ralph/ralph.sh`
+- `scripts/ralph/prompt.md`
+- `scripts/ralph/CLAUDE.md`
+- `scripts/ralph/prd.json`
+- `scripts/ralph/prd.json.example`
+- `scripts/ralph/progress.txt`
+- `scripts/ralph/plans/plan-00.md`
+
+The generated `prd.json` starts with a single completed bootstrap story so the file is immediately valid. Replace it with your real feature PRD before your first real Ralph run.
+
+To install into a different folder:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ariyn/ralph/main/scripts/install.sh | bash -s -- --dir tooling/ralph
+```
+
+### Option 2: Copy to your project
 
 Copy the ralph files into your project:
 
@@ -35,7 +60,7 @@ cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 2: Install skills globally (Amp)
+### Option 3: Install skills globally (Amp)
 
 Copy the skills to your Amp or Claude config for use across all projects:
 
@@ -51,7 +76,7 @@ cp -r skills/prd ~/.claude/skills/
 cp -r skills/ralph ~/.claude/skills/
 ```
 
-### Option 3: Use as Claude Code Marketplace
+### Option 4: Use as Claude Code Marketplace
 
 Add the Ralph marketplace to Claude Code:
 
@@ -133,11 +158,13 @@ Ralph will:
 
 | File | Purpose |
 |------|---------|
+| `scripts/install.sh` | Bootstrap script for `curl | bash` setup in another project |
 | `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
 | `prompt.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
+| `plans/` | Story plan documents referenced by each PRD item's `plan` field |
 | `progress.txt` | Append-only learnings for future iterations |
 | `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
 | `skills/ralph/` | Skill for converting PRDs to JSON (works with Amp and Claude Code) |
