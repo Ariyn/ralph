@@ -198,7 +198,6 @@ download_or_copy "ralph.sh" "$INSTALL_DIR/ralph.sh"
 download_or_copy "PLAN.md" "$INSTALL_DIR/PLAN.md"
 download_or_copy "CLAUDE.md" "$INSTALL_DIR/CLAUDE.md"
 download_or_copy "CODEX.md" "$INSTALL_DIR/CODEX.md"
-download_or_copy "prd.json.example" "$INSTALL_DIR/prd.json.example"
 
 chmod +x "$INSTALL_DIR/ralph.sh"
 
@@ -259,7 +258,6 @@ Ralph 부트스트랩이 완료되었습니다.
   - $TARGET_DIR/CLAUDE.md
   - $TARGET_DIR/CODEX.md
   - $TARGET_DIR/prd.json
-  - $TARGET_DIR/prd.json.example
   - $TARGET_DIR/progress.txt
   - $TARGET_DIR/plans/plan-00.md
 
