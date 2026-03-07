@@ -31,6 +31,11 @@ This bootstraps:
 - `scripts/ralph/PLAN.md`
 - `scripts/ralph/CLAUDE.md`
 - `scripts/ralph/CODEX.md`
+- `scripts/ralph/skills/prd/SKILL.md`
+- `scripts/ralph/skills/ralph/SKILL.md`
+- `.agents/skills/prd/SKILL.md` (Codex skill discovery path)
+- `.agents/skills/ralph/SKILL.md` (Codex skill discovery path)
+- `scripts/ralph/.ralph-install-checksums` (체크섬 기준 파일)
 - `scripts/ralph/prd.json`
 - `scripts/ralph/prd.json.example`
 - `scripts/ralph/progress.txt`
@@ -43,6 +48,20 @@ To install into a different folder:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ariyn/ralph/main/scripts/install.sh | bash -s -- --dir tooling/ralph
 ```
+
+To install Codex skills into a custom location (default is `.agents/skills`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ariyn/ralph/main/scripts/install.sh | bash -s -- --codex-skills-dir .agents/skills
+```
+
+Re-running the same installer command performs checksum-based updates automatically.
+
+Checksum update behavior (default):
+- Checksums are tracked in `scripts/ralph/.ralph-install-checksums`
+- If a managed file differs from its recorded checksum, installer keeps that file unchanged
+- If a managed file matches its recorded checksum, installer refreshes it to the latest version
+- If no checksum baseline exists yet, installer keeps the file and seeds checksum for the next run
 
 ### Option 2: Copy to your project
 
@@ -59,20 +78,32 @@ cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
 # OR
 cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md      # For Codex
 
+# Shared skills (available to both tools as local project files)
+mkdir -p scripts/ralph/skills
+cp -r /path/to/ralph/skills/prd scripts/ralph/skills/
+cp -r /path/to/ralph/skills/ralph scripts/ralph/skills/
+
+# Codex skill discovery path (Codex scans .agents/skills)
+mkdir -p .agents/skills
+cp -r /path/to/ralph/skills/prd .agents/skills/
+cp -r /path/to/ralph/skills/ralph .agents/skills/
+
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 3: Install skills globally (Claude Code)
+### Option 3: Install skills globally (optional, Claude Code)
 
-Copy the skills to your Claude config for use across all projects:
+`curl | bash` installs shared skills into `scripts/ralph/skills`, which keeps them in a project-local location that both Codex and Claude can read.
 
-For Claude Code (manual)
+If you also want Claude global skills for all projects, copy from the installed folder:
+
+For Claude Code (manual):
 ```bash
-cp -r skills/prd ~/.claude/skills/
-cp -r skills/ralph ~/.claude/skills/
+cp -r scripts/ralph/skills/prd ~/.claude/skills/
+cp -r scripts/ralph/skills/ralph ~/.claude/skills/
 ```
 
-Codex does not use the Claude skill folders; it uses the checked-in prompt and plan files directly.
+Codex does not use the Claude skill folders; it discovers skills from `.agents/skills` (or `~/.agents/skills`).
 
 ### Option 4: Use as Claude Code Marketplace
 

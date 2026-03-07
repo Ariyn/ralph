@@ -10,6 +10,7 @@ OWNER="${RALPH_REPO_OWNER:-$DEFAULT_OWNER}"
 REPO="${RALPH_REPO_NAME:-$DEFAULT_REPO}"
 REF="${RALPH_REF:-$DEFAULT_REF}"
 TARGET_DIR="${RALPH_TARGET_DIR:-scripts/ralph}"
+CODEX_SKILLS_DIR="${RALPH_CODEX_SKILLS_DIR:-.agents/skills}"
 SOURCE_DIR="${RALPH_SOURCE_DIR:-}"
 FORCE=0
 
@@ -20,9 +21,11 @@ Ralph을 현재 프로젝트에 설치합니다.
 사용법:
   curl -fsSL https://raw.githubusercontent.com/$\{DEFAULT_OWNER\}/$\{DEFAULT_REPO\}/$\{DEFAULT_REF\}/scripts/install.sh | bash
   curl -fsSL https://raw.githubusercontent.com/$\{DEFAULT_OWNER\}/$\{DEFAULT_REPO\}/$\{DEFAULT_REF\}/scripts/install.sh | bash -s -- --dir tooling/ralph
+  curl -fsSL https://raw.githubusercontent.com/$\{DEFAULT_OWNER\}/$\{DEFAULT_REPO\}/$\{DEFAULT_REF\}/scripts/install.sh | bash -s -- --codex-skills-dir .agents/skills
 
 옵션:
   --dir, --target-dir PATH  설치 경로를 현재 디렉터리 기준으로 지정 (기본값: scripts/ralph)
+  --codex-skills-dir PATH   Codex skills 설치 경로 (기본값: .agents/skills, 상대/절대 경로 가능)
   --owner NAME              원격 설치를 위한 GitHub owner 지정 (기본값: ${DEFAULT_OWNER})
   --repo NAME               원격 설치를 위한 GitHub repo 지정 (기본값: ${DEFAULT_REPO})
   --ref REF                 원격 설치를 위한 Git ref 지정 (기본값: ${DEFAULT_REF})
@@ -32,6 +35,7 @@ Ralph을 현재 프로젝트에 설치합니다.
 환경 변수:
   RALPH_SOURCE_DIR          파일을 다운로드하는 대신 복사해올 로컬 Ralph 경로
   RALPH_TARGET_DIR          기본 설치 경로 오버라이드
+  RALPH_CODEX_SKILLS_DIR    Codex skills 설치 경로 오버라이드
   RALPH_REPO_OWNER          기본 GitHub owner 오버라이드
   RALPH_REPO_NAME           기본 GitHub repo 오버라이드
   RALPH_REF                 기본 Git ref 오버라이드
@@ -56,6 +60,11 @@ while [[ $# -gt 0 ]]; do
     --dir|--target-dir)
       [[ $# -ge 2 ]] || fail "$1 옵션의 값이 누락되었습니다."
       TARGET_DIR="$2"
+      shift 2
+      ;;
+    --codex-skills-dir)
+      [[ $# -ge 2 ]] || fail "$1 옵션의 값이 누락되었습니다."
+      CODEX_SKILLS_DIR="$2"
       shift 2
       ;;
     --owner)
@@ -89,9 +98,11 @@ done
 
 TARGET_DIR="${TARGET_DIR#./}"
 TARGET_DIR="${TARGET_DIR%/}"
+CODEX_SKILLS_DIR="${CODEX_SKILLS_DIR%/}"
 
 [[ -n "$TARGET_DIR" ]] || fail "대상 디렉터리는 비어있을 수 없습니다."
 [[ "$TARGET_DIR" != /* ]] || fail "대상 디렉터리는 현재 디렉터리 기준의 상대 경로여야 합니다."
+[[ -n "$CODEX_SKILLS_DIR" ]] || fail "Codex skills 디렉터리는 비어있을 수 없습니다."
 
 if [[ -z "$SOURCE_DIR" ]] && ! command -v curl >/dev/null 2>&1; then
   fail "원격 설치를 위해 curl이 필요합니다."
@@ -102,6 +113,12 @@ PROJECT_NAME="$(basename "$PROJECT_ROOT")"
 INSTALL_DIR="$PROJECT_ROOT/$TARGET_DIR"
 RAW_BASE_URL="${RALPH_RAW_BASE_URL:-https://raw.githubusercontent.com/$OWNER/$REPO/$REF}"
 
+if [[ "$CODEX_SKILLS_DIR" = /* ]]; then
+  CODEX_SKILLS_INSTALL_DIR="$CODEX_SKILLS_DIR"
+else
+  CODEX_SKILLS_INSTALL_DIR="$PROJECT_ROOT/$CODEX_SKILLS_DIR"
+fi
+
 if command -v git >/dev/null 2>&1 && git rev-parse --show-toplevel >/dev/null 2>&1; then
   GIT_ROOT="$(git rev-parse --show-toplevel)"
   if [[ "$GIT_ROOT" != "$PROJECT_ROOT" ]]; then
@@ -111,7 +128,18 @@ else
   warn "git 저장소가 감지되지 않았습니다. Ralph은 git 프로젝트 내부에서 가장 잘 작동합니다."
 fi
 
-mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/plans"
+mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/plans" "$INSTALL_DIR/skills/prd" "$INSTALL_DIR/skills/ralph" "$CODEX_SKILLS_INSTALL_DIR/prd" "$CODEX_SKILLS_INSTALL_DIR/ralph"
+
+CHECKSUM_MANIFEST="$INSTALL_DIR/.ralph-install-checksums"
+CHECKSUM_MANIFEST_WORK="$(mktemp)"
+if [[ -f "$CHECKSUM_MANIFEST" ]]; then
+  cp "$CHECKSUM_MANIFEST" "$CHECKSUM_MANIFEST_WORK"
+fi
+
+cleanup() {
+  rm -f "$CHECKSUM_MANIFEST_WORK"
+}
+trap cleanup EXIT
 
 slugify() {
   printf "%s" "$1" | tr "[:upper:]" "[:lower:]" | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//"
@@ -139,15 +167,98 @@ relative_path() {
   printf "%s\n" "${path#"$PROJECT_ROOT"/}"
 }
 
+sha256_file() {
+  local file_path="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file_path" | awk '{print $1}'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file_path" | awk '{print $NF}'
+    return
+  fi
+
+  fail "체크섬 계산을 위해 sha256sum, shasum, openssl 중 하나가 필요합니다."
+}
+
+manifest_key() {
+  local file_path="$1"
+  if [[ "$file_path" == "$PROJECT_ROOT"/* ]]; then
+    printf "%s\n" "${file_path#"$PROJECT_ROOT"/}"
+  else
+    printf "%s\n" "$file_path"
+  fi
+}
+
+manifest_get() {
+  local key="$1"
+  awk -F $'\t' -v k="$key" '$1 == k { print $2; exit }' "$CHECKSUM_MANIFEST_WORK"
+}
+
+manifest_set() {
+  local key="$1"
+  local checksum="$2"
+  local temp_file
+
+  temp_file="$(mktemp)"
+  awk -F $'\t' -v k="$key" '$1 != k { print $0 }' "$CHECKSUM_MANIFEST_WORK" > "$temp_file"
+  printf "%s\t%s\n" "$key" "$checksum" >> "$temp_file"
+  mv "$temp_file" "$CHECKSUM_MANIFEST_WORK"
+}
+
+sync_managed_file_from_local_source() {
+  local source_file="$1"
+  local destination_path="$2"
+  local display_path source_checksum key recorded_checksum current_checksum
+
+  display_path="$(relative_path "$destination_path")"
+  source_checksum="$(sha256_file "$source_file")"
+  key="$(manifest_key "$destination_path")"
+
+  if [[ -f "$destination_path" ]]; then
+    if [[ "$FORCE" -eq 1 ]]; then
+      cp "$source_file" "$destination_path"
+      manifest_set "$key" "$source_checksum"
+      log "강제 덮어쓰기 완료: $display_path"
+      return
+    fi
+
+    recorded_checksum="$(manifest_get "$key")"
+    current_checksum="$(sha256_file "$destination_path")"
+
+    if [[ -z "$recorded_checksum" ]]; then
+      manifest_set "$key" "$current_checksum"
+      log "체크섬 기준이 없어 파일 유지(다음 실행부터 추적): $display_path"
+      return
+    fi
+
+    if [[ "$current_checksum" != "$recorded_checksum" ]]; then
+      log "로컬 변경 감지로 파일 유지: $display_path"
+      return
+    fi
+
+    cp "$source_file" "$destination_path"
+    manifest_set "$key" "$source_checksum"
+    log "업데이트 완료: $display_path"
+    return
+  fi
+
+  cp "$source_file" "$destination_path"
+  manifest_set "$key" "$source_checksum"
+  log "설치 완료: $display_path"
+}
+
 download_or_copy() {
   local source_path="$1"
   local destination_path="$2"
   local temp_file
-
-  if [[ -f "$destination_path" && "$FORCE" -ne 1 ]]; then
-    log "기존 파일 유지: $(relative_path "$destination_path")"
-    return
-  fi
 
   temp_file="$(mktemp)"
 
@@ -159,11 +270,23 @@ download_or_copy() {
     curl -fsSL "$RAW_BASE_URL/$source_path" -o "$temp_file"
   fi
 
-  mv "$temp_file" "$destination_path"
-  log "설치 완료: $(relative_path "$destination_path")"
+  sync_managed_file_from_local_source "$temp_file" "$destination_path"
+  rm -f "$temp_file"
 }
 
 ensure_file() {
+  local file_path="$1"
+  local file_contents="$2"
+  local temp_file
+
+  temp_file="$(mktemp)"
+  printf "%s" "$file_contents" > "$temp_file"
+
+  sync_managed_file_from_local_source "$temp_file" "$file_path"
+  rm -f "$temp_file"
+}
+
+ensure_unmanaged_file() {
   local file_path="$1"
   local file_contents="$2"
 
@@ -198,6 +321,10 @@ download_or_copy "ralph.sh" "$INSTALL_DIR/ralph.sh"
 download_or_copy "PLAN.md" "$INSTALL_DIR/PLAN.md"
 download_or_copy "CLAUDE.md" "$INSTALL_DIR/CLAUDE.md"
 download_or_copy "CODEX.md" "$INSTALL_DIR/CODEX.md"
+download_or_copy "skills/prd/SKILL.md" "$INSTALL_DIR/skills/prd/SKILL.md"
+download_or_copy "skills/ralph/SKILL.md" "$INSTALL_DIR/skills/ralph/SKILL.md"
+download_or_copy "skills/prd/SKILL.md" "$CODEX_SKILLS_INSTALL_DIR/prd/SKILL.md"
+download_or_copy "skills/ralph/SKILL.md" "$CODEX_SKILLS_INSTALL_DIR/ralph/SKILL.md"
 
 chmod +x "$INSTALL_DIR/ralph.sh"
 
@@ -224,7 +351,7 @@ ensure_file "$INSTALL_DIR/prd.json" "{
 }
 "
 
-ensure_file "$INSTALL_DIR/progress.txt" "# Ralph 진행 로그
+ensure_unmanaged_file "$INSTALL_DIR/progress.txt" "# Ralph 진행 로그
 시작됨: $(date)
 ---
 "
@@ -243,6 +370,7 @@ ensure_file "$INSTALL_DIR/plans/plan-00.md" "# Ralph 초기화 플레이스홀�
 
 GITIGNORE_PATH="$PROJECT_ROOT/.gitignore"
 ensure_gitignore_entry "$GITIGNORE_PATH" "$TARGET_DIR"
+cp "$CHECKSUM_MANIFEST_WORK" "$CHECKSUM_MANIFEST"
 
 cat <<EOF_MSG
 
@@ -255,6 +383,11 @@ Ralph 부트스트랩이 완료되었습니다.
   - $TARGET_DIR/PLAN.md
   - $TARGET_DIR/CLAUDE.md
   - $TARGET_DIR/CODEX.md
+  - $TARGET_DIR/skills/prd/SKILL.md
+  - $TARGET_DIR/skills/ralph/SKILL.md
+  - $(relative_path "$CODEX_SKILLS_INSTALL_DIR")/prd/SKILL.md
+  - $(relative_path "$CODEX_SKILLS_INSTALL_DIR")/ralph/SKILL.md
+  - $TARGET_DIR/.ralph-install-checksums
   - $TARGET_DIR/prd.json
   - $TARGET_DIR/progress.txt
   - $TARGET_DIR/plans/plan-00.md
@@ -262,8 +395,11 @@ Ralph 부트스트랩이 완료되었습니다.
 다음 단계:
   1. 준비가 되면 $TARGET_DIR/prd.json 을 실제 기능 PRD로 교체하거나 편집하세요.
   2. $TARGET_DIR/plans/plan-00.md 을 교체하고 실제 스토리들을 위한 plan-xx.md 파일들을 추가하세요.
-  3. $TARGET_DIR/PLAN.md, $TARGET_DIR/CLAUDE.md, $TARGET_DIR/CODEX.md 를 프로젝트에 맞게 수정하세요.
-  4. ./$TARGET_DIR/ralph.sh [--tool codex] [--plan-model ...] [--exec-model ...] 명령으로 실행하세요.
+  3. Claude용 공유 skills는 $TARGET_DIR/skills 하위에 설치됩니다 (전역 사용 시 ~/.claude/skills 로 복사).
+  4. Codex용 skills는 $(relative_path "$CODEX_SKILLS_INSTALL_DIR") 하위에 설치됩니다 (Codex 공식 검색 경로).
+  5. Codex가 새 스킬을 바로 못 찾으면 Codex를 재시작하세요.
+  6. $TARGET_DIR/PLAN.md, $TARGET_DIR/CLAUDE.md, $TARGET_DIR/CODEX.md 를 프로젝트에 맞게 수정하세요.
+  7. ./$TARGET_DIR/ralph.sh [--tool codex] [--plan-model ...] [--exec-model ...] 명령으로 실행하세요.
 
 빠른 설치 명령:
   curl -fsSL https://raw.githubusercontent.com/$OWNER/$REPO/$REF/scripts/install.sh | bash
