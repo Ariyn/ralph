@@ -2,7 +2,7 @@
 
 ![Ralph](ralph.webp)
 
-Ralph is an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Ralph is an autonomous AI agent loop that runs AI coding tools ([Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex CLI](https://developers.openai.com/codex/cli)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, `prd.json`, and story plan files.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
@@ -11,8 +11,8 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 ## Prerequisites
 
 - One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (default) (`npm install -g @anthropic-ai/claude-code`)
+  - [Codex CLI](https://developers.openai.com/codex/cli) (`npm install -g @openai/codex`)
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
 
@@ -28,8 +28,9 @@ curl -fsSL https://raw.githubusercontent.com/Ariyn/ralph/main/scripts/install.sh
 
 This bootstraps:
 - `scripts/ralph/ralph.sh`
-- `scripts/ralph/prompt.md`
+- `scripts/ralph/PLAN.md`
 - `scripts/ralph/CLAUDE.md`
+- `scripts/ralph/CODEX.md`
 - `scripts/ralph/prd.json`
 - `scripts/ralph/prd.json.example`
 - `scripts/ralph/progress.txt`
@@ -52,29 +53,26 @@ Copy the ralph files into your project:
 mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
 
-# Copy the prompt template for your AI tool of choice:
-cp /path/to/ralph/prompt.md scripts/ralph/prompt.md    # For Amp
-# OR
+# Copy the shared planning prompt and the prompt template for your AI tool of choice:
+cp /path/to/ralph/PLAN.md scripts/ralph/PLAN.md        # Shared plan-generation prompt
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
+# OR
+cp /path/to/ralph/CODEX.md scripts/ralph/CODEX.md      # For Codex
 
 chmod +x scripts/ralph/ralph.sh
 ```
 
-### Option 3: Install skills globally (Amp)
+### Option 3: Install skills globally (Claude Code)
 
-Copy the skills to your Amp or Claude config for use across all projects:
-
-For AMP
-```bash
-cp -r skills/prd ~/.config/amp/skills/
-cp -r skills/ralph ~/.config/amp/skills/
-```
+Copy the skills to your Claude config for use across all projects:
 
 For Claude Code (manual)
 ```bash
 cp -r skills/prd ~/.claude/skills/
 cp -r skills/ralph ~/.claude/skills/
 ```
+
+Codex does not use the Claude skill folders; it uses the checked-in prompt and plan files directly.
 
 ### Option 4: Use as Claude Code Marketplace
 
@@ -97,18 +95,6 @@ Available skills after installation:
 Skills are automatically invoked when you ask Claude to:
 - "create a prd", "write prd for", "plan this feature"
 - "convert this prd", "turn into ralph format", "create prd.json"
-
-### Configure Amp auto-handoff (recommended)
-
-Add to `~/.config/amp/settings.json`:
-
-```json
-{
-  "amp.experimental.autoHandoff": { "context": 90 }
-}
-```
-
-This enables automatic handoff when context fills up, allowing Ralph to handle large stories that exceed a single context window.
 
 ## Workflow
 
@@ -135,39 +121,63 @@ This creates `prd.json` with user stories structured for autonomous execution.
 ### 3. Run Ralph
 
 ```bash
-# Using Amp (default)
+# Using Claude Code (default)
 ./scripts/ralph/ralph.sh [max_iterations]
 
-# Using Claude Code
+# Using Claude Code with explicit model overrides
+./scripts/ralph/ralph.sh --plan-model claude-opus-4-6 --exec-model claude-sonnet-4-6 [max_iterations]
+
+# Using Codex
+./scripts/ralph/ralph.sh --tool codex [max_iterations]
+
+# Using Codex with explicit model and reasoning overrides
+./scripts/ralph/ralph.sh --tool codex --plan-model gpt-5.4 --plan-reasoning xhigh --exec-model gpt-5.4 --exec-reasoning medium [max_iterations]
+
+# Using Claude Code explicitly
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
 ```
 
-Default is 10 iterations. Use `--tool amp` or `--tool claude` to select your AI coding tool.
+Default is 10 iterations. Use `--tool claude` or `--tool codex` to select your AI coding tool.
+
+### Planning-first execution
+
+Before every implementation run, Ralph checks the next pending story:
+
+1. If the story's `plan` field is empty, Ralph assigns a default plan path in `plans/`.
+2. If the plan file is missing or empty, Ralph runs a **planning-only** pass and exits immediately.
+3. If the plan file exists, Ralph appends that plan to the implementation prompt and runs the story.
+
+Default planning/execution models:
+
+- Claude Code: planning with `claude-opus-4-6`, implementation with `claude-sonnet-4-6`
+- Codex: planning with `gpt-5.4` + `xhigh` reasoning, implementation with `gpt-5.4` + `medium` reasoning
 
 Ralph will:
 1. Create a feature branch (from PRD `branchName`)
 2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+3. Generate the story plan first if the plan file is missing, then exit
+4. Read the existing plan file and implement that single story
+5. Run quality checks (typecheck, tests)
+6. Commit if checks pass
+7. Update `prd.json` to mark story as `passes: true`
+8. Append learnings to `progress.txt`
+9. Repeat until all stories pass or max iterations reached
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `scripts/install.sh` | Bootstrap script for `curl | bash` setup in another project |
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
-| `prompt.md` | Prompt template for Amp |
+| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool claude` or `--tool codex`) |
+| `PLAN.md` | Shared prompt template for plan-generation runs |
 | `CLAUDE.md` | Prompt template for Claude Code |
+| `CODEX.md` | Prompt template for Codex |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
 | `plans/` | Story plan documents referenced by each PRD item's `plan` field |
 | `progress.txt` | Append-only learnings for future iterations |
-| `skills/prd/` | Skill for generating PRDs (works with Amp and Claude Code) |
-| `skills/ralph/` | Skill for converting PRDs to JSON (works with Amp and Claude Code) |
+| `skills/prd/` | Skill for generating PRDs for Claude Code workflows |
+| `skills/ralph/` | Skill for converting PRDs to JSON for Claude Code workflows |
 | `.claude-plugin/` | Plugin manifest for Claude Code marketplace discovery |
 | `flowchart/` | Interactive visualization of how Ralph works |
 
@@ -189,10 +199,11 @@ npm run dev
 
 ### Each Iteration = Fresh Context
 
-Each iteration spawns a **new AI instance** (Amp or Claude Code) with clean context. The only memory between iterations is:
+Each iteration spawns a **new AI instance** (Claude Code or Codex) with clean context. The only memory between iterations is:
 - Git history (commits from previous iterations)
 - `progress.txt` (learnings and context)
 - `prd.json` (which stories are done)
+- `plans/*.md` (the implementation plans for future stories)
 
 ### Small Tasks
 
@@ -250,7 +261,7 @@ git log --oneline -10
 
 ## Customizing the Prompt
 
-After copying `prompt.md` (for Amp) or `CLAUDE.md` (for Claude Code) to your project, customize it for your project:
+After copying `PLAN.md`, `CLAUDE.md`, or `CODEX.md` to your project, customize them for your project:
 - Add project-specific quality check commands
 - Include codebase conventions
 - Add common gotchas for your stack
@@ -262,5 +273,5 @@ Ralph automatically archives previous runs when you start a new feature (differe
 ## References
 
 - [Geoffrey Huntley's Ralph article](https://ghuntley.com/ralph/)
-- [Amp documentation](https://ampcode.com/manual)
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [Codex CLI documentation](https://developers.openai.com/codex/cli)

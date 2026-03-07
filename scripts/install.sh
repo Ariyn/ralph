@@ -195,8 +195,9 @@ ensure_gitignore_entry() {
 }
 
 download_or_copy "ralph.sh" "$INSTALL_DIR/ralph.sh"
-download_or_copy "prompt.md" "$INSTALL_DIR/prompt.md"
+download_or_copy "PLAN.md" "$INSTALL_DIR/PLAN.md"
 download_or_copy "CLAUDE.md" "$INSTALL_DIR/CLAUDE.md"
+download_or_copy "CODEX.md" "$INSTALL_DIR/CODEX.md"
 download_or_copy "prd.json.example" "$INSTALL_DIR/prd.json.example"
 
 chmod +x "$INSTALL_DIR/ralph.sh"
@@ -254,8 +255,9 @@ Ralph 부트스트랩이 완료되었습니다.
 
 준비된 파일:
   - $TARGET_DIR/ralph.sh
-  - $TARGET_DIR/prompt.md
+  - $TARGET_DIR/PLAN.md
   - $TARGET_DIR/CLAUDE.md
+  - $TARGET_DIR/CODEX.md
   - $TARGET_DIR/prd.json
   - $TARGET_DIR/prd.json.example
   - $TARGET_DIR/progress.txt
@@ -264,8 +266,8 @@ Ralph 부트스트랩이 완료되었습니다.
 다음 단계:
   1. 준비가 되면 $TARGET_DIR/prd.json 을 실제 기능 PRD로 교체하거나 편집하세요.
   2. $TARGET_DIR/plans/plan-00.md 을 교체하고 실제 스토리들을 위한 plan-xx.md 파일들을 추가하세요.
-  3. $TARGET_DIR/prompt.md 또는 $TARGET_DIR/CLAUDE.md 를 프로젝트에 맞게 수정하세요.
-  4. ./$TARGET_DIR/ralph.sh [--tool claude] 명령으로 실행하세요.
+  3. $TARGET_DIR/PLAN.md, $TARGET_DIR/CLAUDE.md, $TARGET_DIR/CODEX.md 를 프로젝트에 맞게 수정하세요.
+  4. ./$TARGET_DIR/ralph.sh [--tool codex] [--plan-model ...] [--exec-model ...] 명령으로 실행하세요.
 
 빠른 설치 명령:
   curl -fsSL https://raw.githubusercontent.com/$OWNER/$REPO/$REF/scripts/install.sh | bash

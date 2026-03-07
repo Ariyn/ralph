@@ -34,6 +34,7 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
         "Typecheck passes"
       ],
       "priority": 1,
+      "plan": "plans/plan-01.md",
       "passes": false,
       "notes": ""
     }
@@ -47,7 +48,7 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
 
 **Each story must be completable in ONE Ralph iteration (one context window).**
 
-Ralph spawns a fresh Amp instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
+Ralph spawns a fresh Claude Code or Codex instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
 
 ### Right-sized stories:
 - Add a database column and migration
@@ -121,9 +122,10 @@ Frontend stories are NOT complete until visually verified. Ralph will use the de
 1. **Each user story becomes one JSON entry**
 2. **IDs**: Sequential (US-001, US-002, etc.)
 3. **Priority**: Based on dependency order, then document order
-4. **All stories**: `passes: false` and empty `notes`
-5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-6. **Always add**: "Typecheck passes" to every story's acceptance criteria
+4. **Plan path**: Add `plan` for every story, usually `plans/plan-XX.md`
+5. **All stories**: `passes: false` and empty `notes`
+6. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
+7. **Always add**: "Typecheck passes" to every story's acceptance criteria
 
 ---
 
@@ -178,6 +180,7 @@ Add ability to mark tasks with different statuses.
         "Typecheck passes"
       ],
       "priority": 1,
+      "plan": "plans/plan-01.md",
       "passes": false,
       "notes": ""
     },
@@ -192,6 +195,7 @@ Add ability to mark tasks with different statuses.
         "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
+      "plan": "plans/plan-02.md",
       "passes": false,
       "notes": ""
     },
@@ -207,6 +211,7 @@ Add ability to mark tasks with different statuses.
         "Verify in browser using dev-browser skill"
       ],
       "priority": 3,
+      "plan": "plans/plan-03.md",
       "passes": false,
       "notes": ""
     },
@@ -221,6 +226,7 @@ Add ability to mark tasks with different statuses.
         "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
+      "plan": "plans/plan-04.md",
       "passes": false,
       "notes": ""
     }
@@ -252,6 +258,7 @@ Before writing prd.json, verify:
 - [ ] **Previous run archived** (if prd.json exists with different branchName, archive it first)
 - [ ] Each story is completable in one iteration (small enough)
 - [ ] Stories are ordered by dependency (schema to backend to UI)
+- [ ] Every story has a `plan` path in `plans/`
 - [ ] Every story has "Typecheck passes" as criterion
 - [ ] UI stories have "Verify in browser using dev-browser skill" as criterion
 - [ ] Acceptance criteria are verifiable (not vague)
