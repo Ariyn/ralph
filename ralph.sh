@@ -382,8 +382,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
       echo "Warning: $TOOL exited with status $AGENT_STATUS after writing the plan."
     fi
 
-    echo "Plan generated at $STORY_PLAN_REL. Exiting before implementation."
-    exit 0
+    echo "Plan generated at $STORY_PLAN_REL. Starting implementation..."
   fi
 
   TEMP_PROMPT_FILE="$(mktemp)"
