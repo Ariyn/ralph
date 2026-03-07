@@ -4,11 +4,11 @@ You are generating the implementation plan for the next Ralph story.
 
 ## Your Task
 
-1. Read the PRD at `prd.json` (in the same directory as this file)
-2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
+1. Read the PRD from the `PRD path` provided in the Ralph Runtime Context. If no explicit path is provided, use `prd.json` in the Ralph control directory.
+2. Read the progress log from the `Progress log path` provided in the Ralph Runtime Context. If no explicit path is provided, use `progress.txt` in the Ralph control directory (check Codebase Patterns section first).
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
 4. Use the selected story from the Ralph Runtime Context if it is provided. Otherwise, pick the **highest priority** user story where `passes: false`.
-5. Create or update the markdown plan file referenced by that story's `plan` field.
+5. Create or update the markdown plan file referenced by that story's `plan` field, using the explicit target path from the Ralph Runtime Context when it is provided.
 6. Stop after the plan file is written.
 
 ## Plan Requirements

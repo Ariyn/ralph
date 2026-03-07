@@ -242,7 +242,9 @@ Frontend stories must include "Verify in browser using dev-browser skill" in acc
 
 ### Stop Condition
 
-When all stories have `passes: true`, Ralph outputs `<promise>COMPLETE</promise>` and the loop exits.
+Ralph treats `prd.json` as the source of truth and exits when no stories remain with `passes: false`.
+
+The agent may still emit `<promise>COMPLETE</promise>` when everything is done, but Ralph no longer trusts that marker by itself because some CLIs can echo or quote it while there is still pending work.
 
 ## Debugging
 

@@ -125,7 +125,6 @@ else
   EXEC_REASONING=""
 fi
 
-ROOT_DIR="$PWD"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
@@ -177,6 +176,14 @@ get_next_story_json() {
   jq -c '[.userStories | to_entries[] | select((.value.passes // false) != true)] | sort_by(.value.priority // 999999, .key) | .[0].value // empty' "$PRD_FILE"
 }
 
+agent_reported_complete() {
+  local agent_output="$1"
+  local last_nonempty_line
+
+  last_nonempty_line="$(printf '%s\n' "$agent_output" | awk '{ gsub(/\r/, ""); if (NF) line=$0 } END { print line }')"
+  [[ "$last_nonempty_line" == "<promise>COMPLETE</promise>" ]]
+}
+
 default_plan_path_for_story() {
   local story_id="$1"
   local suffix
@@ -205,7 +212,7 @@ resolve_plan_abspath() {
   if [[ "$plan_path" = /* ]]; then
     printf '%s\n' "$plan_path"
   else
-    printf '%s\n' "$ROOT_DIR/$plan_path"
+    printf '%s\n' "$SCRIPT_DIR/$plan_path"
   fi
 }
 
@@ -213,6 +220,7 @@ compose_plan_prompt() {
   local output_file="$1"
   local story_json="$2"
   local plan_rel="$3"
+  local plan_abs="$4"
   local story_id story_title story_priority
 
   story_id=$(json_field "$story_json" '.id')
@@ -223,10 +231,16 @@ compose_plan_prompt() {
     cat "$PLAN_PROMPT_FILE"
     printf '\n\n---\n\n## Ralph Runtime Context\n\n'
     printf -- '- Mode: plan-only\n'
+    printf -- '- Ralph control directory: %s\n' "$SCRIPT_DIR"
+    printf -- '- PRD path: %s\n' "$PRD_FILE"
+    printf -- '- Progress log path: %s\n' "$PROGRESS_FILE"
     printf -- '- Selected story ID: %s\n' "$story_id"
     printf -- '- Selected story title: %s\n' "$story_title"
     printf -- '- Selected story priority: %s\n' "$story_priority"
     printf -- '- Target plan path: %s\n' "$plan_rel"
+    printf -- '- Target plan absolute path: %s\n' "$plan_abs"
+    printf -- '- Relative plan values in the story JSON are relative to the Ralph control directory above.\n'
+    printf -- '- Use these exact paths instead of inferring paths from the temporary prompt file location.\n'
     printf -- '- Stop immediately after writing the plan file.\n'
     printf '\n### Selected Story JSON\n\n```json\n'
     printf '%s\n' "$story_json" | jq '.'
@@ -250,10 +264,16 @@ compose_execution_prompt() {
     cat "$base_prompt_file"
     printf '\n\n---\n\n## Ralph Runtime Context\n\n'
     printf -- '- Mode: implementation\n'
+    printf -- '- Ralph control directory: %s\n' "$SCRIPT_DIR"
+    printf -- '- PRD path: %s\n' "$PRD_FILE"
+    printf -- '- Progress log path: %s\n' "$PROGRESS_FILE"
     printf -- '- Selected story ID: %s\n' "$story_id"
     printf -- '- Selected story title: %s\n' "$story_title"
     printf -- '- Selected story priority: %s\n' "$story_priority"
     printf -- '- Plan path: %s\n' "$plan_rel"
+    printf -- '- Plan absolute path: %s\n' "$plan_abs"
+    printf -- '- Relative plan values in the story JSON are relative to the Ralph control directory above.\n'
+    printf -- '- Use these exact paths instead of inferring paths from the temporary prompt file location.\n'
     printf -- '- Implement only this story. Do not switch to another pending story.\n'
     printf -- '- Use the plan below as the primary execution guide.\n'
     printf '\n### Selected Story JSON\n\n```json\n'
@@ -372,7 +392,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     mkdir -p "$(dirname "$STORY_PLAN_ABS")"
 
     TEMP_PROMPT_FILE="$(mktemp)"
-    compose_plan_prompt "$TEMP_PROMPT_FILE" "$NEXT_STORY_JSON" "$STORY_PLAN_REL"
+    compose_plan_prompt "$TEMP_PROMPT_FILE" "$NEXT_STORY_JSON" "$STORY_PLAN_REL" "$STORY_PLAN_ABS"
 
     echo "Selected story $STORY_ID ($STORY_TITLE) needs planning because $PLAN_STATUS_REASON."
     echo "Generating plan with $TOOL using $PLAN_MODEL${PLAN_REASONING:+ ($PLAN_REASONING reasoning)}..."
@@ -408,11 +428,19 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     echo "Warning: $TOOL exited with status $AGENT_STATUS"
   fi
 
-  if printf '%s' "$AGENT_OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  REMAINING_STORY_JSON="$(get_next_story_json)"
+
+  if [[ -z "$REMAINING_STORY_JSON" ]]; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
     exit 0
+  fi
+
+  # The PRD is the source of truth. Some agent CLIs or responses can echo the
+  # completion token even when there are still pending stories.
+  if agent_reported_complete "$AGENT_OUTPUT"; then
+    echo "Warning: Ignoring completion token because pending stories still remain in $PRD_FILE"
   fi
 
   echo "Iteration $i complete. Continuing..."

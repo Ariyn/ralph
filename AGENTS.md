@@ -48,5 +48,7 @@ npm run dev
 - Each iteration spawns a fresh AI instance (Claude Code or Codex) with clean context
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Future stories should have plan files in `plans/`; missing plans are generated in a separate planning run before implementation
+- Ralph control files (`prd.json`, `progress.txt`, `plans/*.md`) are resolved relative to the Ralph directory, and runtime prompts should include explicit paths because the generated prompt file itself lives in a temporary location
 - Stories should be small enough to complete in one context window
+- Treat `prd.json` as the completion source of truth; agent output markers can be echoed or quoted and should not alone end the loop
 - Always update AGENTS.md with discovered patterns for future iterations
