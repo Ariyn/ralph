@@ -125,6 +125,7 @@ else
   EXEC_REASONING=""
 fi
 
+ROOT_DIR="$PWD"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
@@ -204,7 +205,7 @@ resolve_plan_abspath() {
   if [[ "$plan_path" = /* ]]; then
     printf '%s\n' "$plan_path"
   else
-    printf '%s\n' "$SCRIPT_DIR/$plan_path"
+    printf '%s\n' "$ROOT_DIR/$plan_path"
   fi
 }
 
@@ -352,22 +353,28 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
   STORY_ID="$(json_field "$NEXT_STORY_JSON" '.id')"
   STORY_TITLE="$(json_field "$NEXT_STORY_JSON" '.title')"
   STORY_PLAN_REL="$(json_field "$NEXT_STORY_JSON" '(.plan // "") | gsub("^\\s+|\\s+$"; "")')"
+  PLAN_STATUS_REASON=""
 
   if [[ -z "$STORY_PLAN_REL" ]]; then
     STORY_PLAN_REL="$(default_plan_path_for_story "$STORY_ID")"
     ensure_story_plan_path "$STORY_ID" "$STORY_PLAN_REL"
     echo "Assigned missing plan path for $STORY_ID: $STORY_PLAN_REL"
+    PLAN_STATUS_REASON="plan path was missing"
   fi
 
   STORY_PLAN_ABS="$(resolve_plan_abspath "$STORY_PLAN_REL")"
 
   if [[ ! -s "$STORY_PLAN_ABS" ]]; then
+    if [[ -z "$PLAN_STATUS_REASON" ]]; then
+      PLAN_STATUS_REASON="plan file is missing or empty"
+    fi
+
     mkdir -p "$(dirname "$STORY_PLAN_ABS")"
 
     TEMP_PROMPT_FILE="$(mktemp)"
     compose_plan_prompt "$TEMP_PROMPT_FILE" "$NEXT_STORY_JSON" "$STORY_PLAN_REL"
 
-    echo "Selected story $STORY_ID ($STORY_TITLE) has no plan yet."
+    echo "Selected story $STORY_ID ($STORY_TITLE) needs planning because $PLAN_STATUS_REASON."
     echo "Generating plan with $TOOL using $PLAN_MODEL${PLAN_REASONING:+ ($PLAN_REASONING reasoning)}..."
 
     run_agent_capture plan "$TEMP_PROMPT_FILE"
@@ -382,7 +389,8 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
       echo "Warning: $TOOL exited with status $AGENT_STATUS after writing the plan."
     fi
 
-    echo "Plan generated at $STORY_PLAN_REL. Starting implementation..."
+    echo "Plan generated at $STORY_PLAN_REL. Exiting before implementation."
+    exit 0
   fi
 
   TEMP_PROMPT_FILE="$(mktemp)"
