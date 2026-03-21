@@ -7,12 +7,12 @@ You are an autonomous coding agent working on a software project.
 1. Read the PRD from the `PRD path` provided in the Ralph Runtime Context. If no explicit path is provided, use `prd.json` in the Ralph control directory.
 2. Read the progress log from the `Progress log path` provided in the Ralph Runtime Context. If no explicit path is provided, use `progress.txt` in the Ralph control directory (check Codebase Patterns section first).
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
-4. Pick the **highest priority** user story where `passes: false`, unless Ralph Runtime Context already selected the story for you
+4. Pick the **highest priority** user story where `status` is `"pending"` or `"failed"` (or `passes: false` for legacy PRDs), unless Ralph Runtime Context already selected the story for you
 5. Implement that single user story
 6. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 7. Update CLAUDE.md files if you discover reusable patterns (see below)
 8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
-9. Update the PRD to set `passes: true` for the completed story
+9. Update the PRD to set `status: "passed"` and `passes: true` for the completed story
 10. Append your progress to `progress.txt`
 
 ## Progress Report Format
@@ -70,12 +70,34 @@ Before committing, check if any edited files have learnings worth preserving in 
 
 Only update CLAUDE.md if you have **genuinely reusable knowledge** that would help future work in that directory.
 
+## Scope Constraints
+
+If the selected story or Ralph Runtime Context includes `scope` fields:
+- **`scope.allowPaths`**: Only modify files matching these glob patterns
+- **`scope.denyPaths`**: Never modify files matching these glob patterns
+
+Respect these constraints strictly. If you need to modify a file outside the allowed scope, note it in your progress report and flag it for review rather than modifying it.
+
 ## Quality Requirements
 
 - ALL commits must pass your project's quality checks (typecheck, lint, test)
 - Do NOT commit broken code
 - Keep changes focused and minimal
 - Follow existing code patterns
+
+## Verification
+
+Ralph runs a validation cascade after your execution completes:
+
+1. **Common guards** (always enforced by harness):
+   - `scope.allowPaths` / `scope.denyPaths`: Files outside allowed scope or matching denied paths cause validation failure
+   - `maxChangedFiles` / `maxAddedLines`: Budget checks (warning by default, enforced when `budgetEnforced: true`)
+2. **Project verification** (priority order):
+   - Story-level or default `verification` commands from PRD
+   - Repository `.ralph/validate.sh` script (fallback when no verification commands exist)
+   - If neither exists, only common guards are checked and the story is marked as `weakValidation`
+
+Ensure verification commands pass before committing. If validation fails, the story will be marked as failed and retried up to `maxRetries` times before being blocked. Results are recorded in `.ralph/runs/<run-id>/result.json`.
 
 ## Browser Testing (If Available)
 
@@ -89,7 +111,7 @@ If no browser tools are available, note in your progress report that manual brow
 
 ## Stop Condition
 
-After completing a user story, check if ALL stories have `passes: true`.
+After completing a user story, check if ALL stories have `status: "passed"` (or `passes: true` for legacy PRDs).
 
 If ALL stories are complete and passing, reply with:
 <promise>COMPLETE</promise>

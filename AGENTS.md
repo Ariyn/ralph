@@ -54,3 +54,18 @@ npm run dev
 - Stories should be small enough to complete in one context window
 - Treat `prd.json` as the completion source of truth; agent output markers can be echoed or quoted and should not alone end the loop
 - Always update AGENTS.md with discovered patterns for future iterations
+
+## Validation Architecture
+
+Ralph enforces a validation cascade after each agent execution:
+
+1. **Common guards** (harness-enforced, language-independent):
+   - Scope: `allowPaths` / `denyPaths` checked against `git diff`
+   - Budget: `maxChangedFiles` / `maxAddedLines` (warning by default, enforced with `budgetEnforced: true`)
+2. **Project verification** (priority order):
+   - Story or default `verification` commands from PRD
+   - `.ralph/validate.sh` in the repo root (fallback)
+   - If neither exists → `weakValidation` status
+3. **Result files**: Written to `.ralph/runs/<run-id>/result.json` per iteration
+
+Repositories can provide `.ralph/validate.sh` as their default validation entrypoint (e.g., `go test ./...`, `pytest`, `pnpm lint && pnpm test`). Ralph executes it and judges by exit code.

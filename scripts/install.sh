@@ -332,6 +332,11 @@ ensure_file "$INSTALL_DIR/prd.json" "{
   \"project\": \"$(json_escape "$PROJECT_NAME")\",
   \"branchName\": \"$(json_escape "$BOOTSTRAP_BRANCH")\",
   \"description\": \"Ralph 초기화 플레이스홀더 - 이 PRD를 실제 기능 계획으로 교체하세요.\",
+  \"defaults\": {
+    \"verification\": [],
+    \"maxRetries\": 2,
+    \"scope\": {}
+  },
   \"userStories\": [
     {
       \"id\": \"US-000\",
@@ -344,7 +349,10 @@ ensure_file "$INSTALL_DIR/prd.json" "{
       ],
       \"priority\": 0,
       \"plan\": \"plans/plan-00.md\",
+      \"status\": \"passed\",
       \"passes\": true,
+      \"retryCount\": 0,
+      \"blocked\": null,
       \"notes\": \"실제 작업을 위해 Ralph을 실행하기 전에 이 플레이스홀더 PRD를 실제 기능 계획으로 교체하세요.\"
     }
   ]

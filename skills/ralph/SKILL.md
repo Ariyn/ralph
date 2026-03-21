@@ -23,6 +23,14 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
   "project": "[Project Name]",
   "branchName": "ralph/[feature-name-kebab-case]",
   "description": "[Feature description from PRD title/intro]",
+  "defaults": {
+    "verification": ["npm run typecheck"],
+    "maxRetries": 2,
+    "scope": {
+      "allowPaths": ["src/**"],
+      "denyPaths": [".env*", "*.lock"]
+    }
+  },
   "userStories": [
     {
       "id": "US-001",
@@ -35,7 +43,17 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
       ],
       "priority": 1,
       "plan": "plans/plan-01.md",
+      "status": "pending",
       "passes": false,
+      "scope": {
+        "allowPaths": ["src/specific-area/**"],
+        "denyPaths": [".env", "package.json"]
+      },
+      "verification": ["npm run typecheck", "npm test -- --filter relevant-test"],
+      "maxRetries": 2,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     }
   ]
@@ -117,15 +135,34 @@ Frontend stories are NOT complete until visually verified. Ralph will use the de
 
 ---
 
+## Execution Contract Fields
+
+Each story is an execution contract, not just a description. Beyond acceptance criteria, populate these fields:
+
+- **`defaults`** (top-level): Set project-wide `verification` commands (e.g., `["npm run typecheck"]`), `maxRetries` (default 2), and `scope` constraints. These apply to all stories unless overridden.
+- **`scope.allowPaths`**: Glob patterns for directories the story is expected to touch. Derive from the story's description (e.g., a DB migration story → `["src/db/**", "drizzle/**"]`).
+- **`scope.denyPaths`**: Glob patterns for files that must not be modified (e.g., `[".env", "package.json"]` for stories that shouldn't change dependencies).
+- **`verification`**: Shell commands that must pass for the story to be considered complete. Include the typecheck command and any relevant test filters. Story-level `verification` overrides `defaults.verification` entirely.
+- **`maxRetries`**: How many times Ralph can retry this story before blocking it. Default 2 is fine for most stories; increase for complex or flaky ones.
+- **`maxChangedFiles`** (optional): Upper limit on files modified. Use for stories where scope creep is a concern.
+- **`maxAddedLines`** (optional): Upper limit on lines added. Use sparingly.
+- **`requiresApproval`**: Set `true` for stories touching auth, payments, migrations, or any sensitive area that needs human review before proceeding.
+- **`status`**: Always initialize to `"pending"`.
+- **`retryCount`**: Always initialize to `0`.
+- **`blocked`**: Always initialize to `null`.
+
+---
+
 ## Conversion Rules
 
 1. **Each user story becomes one JSON entry**
 2. **IDs**: Sequential (US-001, US-002, etc.)
 3. **Priority**: Based on dependency order, then document order
 4. **Plan path**: Add `plan` for every story, usually `plans/plan-XX.md`
-5. **All stories**: `passes: false` and empty `notes`
+5. **All stories**: `status: "pending"`, `passes: false`, `retryCount: 0`, `blocked: null`, and empty `notes`
 6. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
 7. **Always add**: "Typecheck passes" to every story's acceptance criteria
+8. **Always add**: A top-level `defaults` object with at least `verification` and `maxRetries`
 
 ---
 
@@ -169,6 +206,14 @@ Add ability to mark tasks with different statuses.
   "project": "TaskApp",
   "branchName": "ralph/task-status",
   "description": "Task Status Feature - Track task progress with status indicators",
+  "defaults": {
+    "verification": ["npm run typecheck"],
+    "maxRetries": 2,
+    "scope": {
+      "allowPaths": ["src/**"],
+      "denyPaths": [".env*", "*.lock"]
+    }
+  },
   "userStories": [
     {
       "id": "US-001",
@@ -181,7 +226,16 @@ Add ability to mark tasks with different statuses.
       ],
       "priority": 1,
       "plan": "plans/plan-01.md",
+      "status": "pending",
       "passes": false,
+      "scope": {
+        "allowPaths": ["src/db/**", "drizzle/**"],
+        "denyPaths": [".env"]
+      },
+      "verification": ["npm run typecheck", "npm test -- --filter status"],
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -196,7 +250,14 @@ Add ability to mark tasks with different statuses.
       ],
       "priority": 2,
       "plan": "plans/plan-02.md",
+      "status": "pending",
       "passes": false,
+      "scope": {
+        "allowPaths": ["src/components/**", "src/styles/**"]
+      },
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -212,7 +273,11 @@ Add ability to mark tasks with different statuses.
       ],
       "priority": 3,
       "plan": "plans/plan-03.md",
+      "status": "pending",
       "passes": false,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -227,7 +292,11 @@ Add ability to mark tasks with different statuses.
       ],
       "priority": 4,
       "plan": "plans/plan-04.md",
+      "status": "pending",
       "passes": false,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     }
   ]
@@ -263,3 +332,6 @@ Before writing prd.json, verify:
 - [ ] UI stories have "Verify in browser using dev-browser skill" as criterion
 - [ ] Acceptance criteria are verifiable (not vague)
 - [ ] No story depends on a later story
+- [ ] Every story has `status: "pending"`, `retryCount: 0`, `blocked: null`
+- [ ] Top-level `defaults` includes at least `verification` with typecheck command
+- [ ] Stories touching sensitive areas have `requiresApproval: true`

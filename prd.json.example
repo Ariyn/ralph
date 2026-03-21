@@ -2,6 +2,15 @@
   "project": "MyApp",
   "branchName": "ralph/task-priority",
   "description": "Task Priority System - Add priority levels to tasks",
+  "defaults": {
+    "verification": ["npm run typecheck"],
+    "maxRetries": 2,
+    "scope": {
+      "allowPaths": ["src/**"],
+      "denyPaths": [".env*", "*.lock"]
+    },
+    "budgetEnforced": false
+  },
   "userStories": [
     {
       "id": "US-001",
@@ -14,7 +23,19 @@
       ],
       "priority": 1,
       "plan": "plans/plan-01.md",
+      "status": "pending",
       "passes": false,
+      "scope": {
+        "allowPaths": ["src/db/**", "src/models/**", "drizzle/**"],
+        "denyPaths": [".env", "package.json"]
+      },
+      "verification": ["npm run typecheck", "npm test -- --filter priority"],
+      "maxRetries": 3,
+      "maxChangedFiles": 10,
+      "maxAddedLines": 200,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -29,7 +50,15 @@
       ],
       "priority": 2,
       "plan": "plans/plan-02.md",
+      "status": "pending",
       "passes": false,
+      "scope": {
+        "allowPaths": ["src/components/**", "src/styles/**"]
+      },
+      "verification": ["npm run typecheck"],
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -45,7 +74,11 @@
       ],
       "priority": 3,
       "plan": "plans/plan-03.md",
+      "status": "pending",
       "passes": false,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     },
     {
@@ -61,7 +94,11 @@
       ],
       "priority": 4,
       "plan": "plans/plan-04.md",
+      "status": "pending",
       "passes": false,
+      "requiresApproval": false,
+      "retryCount": 0,
+      "blocked": null,
       "notes": ""
     }
   ]

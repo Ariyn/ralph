@@ -3,6 +3,9 @@ prd.json
 progress.txt
 .last-branch
 
+# Validation run results (generated per iteration)
+.ralph/runs/
+
 # Archive is optional to commit
 # archive/
 
