@@ -100,6 +100,19 @@ if [[ "$TOOL" != "claude" && "$TOOL" != "codex" ]]; then
   exit 1
 fi
 
+is_scope_guard_ignored_file() {
+  local file="$1"
+
+  case "$file" in
+    scripts/ralph/progress.txt)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 default_plan_model() {
   case "$1" in
     claude) printf '%s\n' 'claude-opus-4-6' ;;
@@ -279,7 +292,7 @@ run_verification_commands() {
 run_scope_guards() {
   local story_json="$1"
   local baseline_commit="$2"
-  local scope_json changed_files violations=""
+  local scope_json changed_files filtered_changed_files="" violations=""
 
   scope_json=$(printf '%s\n' "$story_json" | jq -c '.scope // empty' 2>/dev/null)
   if [[ -z "$scope_json" ]]; then
@@ -315,6 +328,9 @@ run_scope_guards() {
   if [[ -n "$allow_paths" ]]; then
     while IFS= read -r file; do
       [[ -n "$file" ]] || continue
+      if is_scope_guard_ignored_file "$file"; then
+        continue
+      fi
       local matched=false
       while IFS= read -r pattern; do
         [[ -n "$pattern" ]] || continue
