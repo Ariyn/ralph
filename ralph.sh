@@ -102,15 +102,73 @@ fi
 
 is_scope_guard_ignored_file() {
   local file="$1"
+  local ignored_file
 
-  case "$file" in
-    scripts/ralph/progress.txt)
+  while IFS= read -r ignored_file; do
+    [[ -n "$ignored_file" ]] || continue
+    if [[ "$file" == "$ignored_file" ]]; then
       return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+    fi
+  done < <(get_guard_ignored_files)
+
+  return 1
+}
+
+repo_relative_path() {
+  local abs_path="$1"
+
+  if [[ "$abs_path" == "$REPO_ROOT" ]]; then
+    printf '.\n'
+  elif [[ "$abs_path" == "$REPO_ROOT/"* ]]; then
+    printf '%s\n' "${abs_path#"$REPO_ROOT"/}"
+  else
+    return 1
+  fi
+}
+
+get_guard_ignored_files() {
+  repo_relative_path "$PROGRESS_FILE"
+  repo_relative_path "$PRD_FILE"
+}
+
+guarded_changed_files() {
+  local baseline_commit="$1"
+  local ignored_file
+  local -a diff_args=(--name-only)
+
+  if [[ -n "$baseline_commit" ]]; then
+    diff_args+=("$baseline_commit" HEAD)
+  else
+    diff_args+=(--cached)
+  fi
+
+  diff_args+=(-- .)
+  while IFS= read -r ignored_file; do
+    [[ -n "$ignored_file" ]] || continue
+    diff_args+=(":(exclude)$ignored_file")
+  done < <(get_guard_ignored_files)
+
+  git diff "${diff_args[@]}" 2>/dev/null || echo ""
+}
+
+guarded_added_lines() {
+  local baseline_commit="$1"
+  local ignored_file
+  local -a diff_args=(--numstat)
+
+  if [[ -n "$baseline_commit" ]]; then
+    diff_args+=("$baseline_commit" HEAD)
+  else
+    diff_args+=(--cached)
+  fi
+
+  diff_args+=(-- .)
+  while IFS= read -r ignored_file; do
+    [[ -n "$ignored_file" ]] || continue
+    diff_args+=(":(exclude)$ignored_file")
+  done < <(get_guard_ignored_files)
+
+  git diff "${diff_args[@]}" 2>/dev/null | awk -F '\t' '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }'
 }
 
 default_plan_model() {
@@ -146,6 +204,7 @@ LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
 PLAN_PROMPT_FILE="$SCRIPT_DIR/PLAN.md"
 CLAUDE_PROMPT_FILE="$SCRIPT_DIR/CLAUDE.md"
 CODEX_PROMPT_FILE="$SCRIPT_DIR/CODEX.md"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$SCRIPT_DIR")"
 
 [[ -f "$PRD_FILE" ]] || { echo "Error: Missing $PRD_FILE"; exit 1; }
 [[ -f "$PROGRESS_FILE" ]] || { echo "# Ralph Progress Log" > "$PROGRESS_FILE"; echo "Started: $(date)" >> "$PROGRESS_FILE"; echo "---" >> "$PROGRESS_FILE"; }
@@ -300,11 +359,7 @@ run_scope_guards() {
   fi
   [[ -z "$scope_json" ]] && return 0
 
-  if [[ -n "$baseline_commit" ]]; then
-    changed_files=$(git diff --name-only "$baseline_commit" HEAD 2>/dev/null || echo "")
-  else
-    changed_files=$(git diff --name-only --cached 2>/dev/null || echo "")
-  fi
+  changed_files=$(guarded_changed_files "$baseline_commit")
   [[ -z "$changed_files" ]] && return 0
 
   local deny_paths
@@ -368,13 +423,8 @@ run_budget_guards() {
 
   budget_enforced=$(get_merged_field "$story_json" 'budgetEnforced' 'false')
 
-  if [[ -n "$baseline_commit" ]]; then
-    actual_files=$(git diff --name-only "$baseline_commit" HEAD 2>/dev/null | wc -l | tr -d ' ')
-    actual_lines=$(git diff "$baseline_commit" HEAD --numstat 2>/dev/null | awk '{s+=$1} END {print s+0}')
-  else
-    actual_files=$(git diff --name-only --cached 2>/dev/null | wc -l | tr -d ' ')
-    actual_lines=$(git diff --cached --numstat 2>/dev/null | awk '{s+=$1} END {print s+0}')
-  fi
+  actual_files=$(guarded_changed_files "$baseline_commit" | wc -l | tr -d ' ')
+  actual_lines=$(guarded_added_lines "$baseline_commit")
 
   if [[ "$max_files" != "null" ]] && [[ "$actual_files" -gt "$max_files" ]]; then
     echo "  Budget: $actual_files files changed (max: $max_files)"
