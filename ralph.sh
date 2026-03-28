@@ -14,6 +14,8 @@ Options:
   --exec-model MODEL        override the implementation model for the selected tool
   --plan-reasoning LEVEL    codex only: planning reasoning effort (default: xhigh)
   --exec-reasoning LEVEL    codex only: implementation reasoning effort (default: medium)
+  --plan-timeout SECONDS    planning timeout in seconds, 0 disables timeout (default: 900)
+  --exec-timeout SECONDS    execution timeout in seconds, 0 disables timeout (default: 3600)
   --help                    show this message
 
 Defaults:
@@ -30,6 +32,9 @@ PLAN_MODEL="${RALPH_PLAN_MODEL:-}"
 EXEC_MODEL="${RALPH_EXEC_MODEL:-}"
 PLAN_REASONING="${RALPH_PLAN_REASONING:-}"
 EXEC_REASONING="${RALPH_EXEC_REASONING:-}"
+PLAN_TIMEOUT_SECONDS="${RALPH_PLAN_TIMEOUT_SECONDS:-900}"
+EXEC_TIMEOUT_SECONDS="${RALPH_EXEC_TIMEOUT_SECONDS:-3600}"
+WEAK_VALIDATION_REQUIRES_APPROVAL="${RALPH_WEAK_VALIDATION_REQUIRES_APPROVAL:-true}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +83,24 @@ while [[ $# -gt 0 ]]; do
       EXEC_REASONING="${1#*=}"
       shift
       ;;
+    --plan-timeout)
+      [[ $# -ge 2 ]] || { echo "Error: --plan-timeout requires a value."; exit 1; }
+      PLAN_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --plan-timeout=*)
+      PLAN_TIMEOUT_SECONDS="${1#*=}"
+      shift
+      ;;
+    --exec-timeout)
+      [[ $# -ge 2 ]] || { echo "Error: --exec-timeout requires a value."; exit 1; }
+      EXEC_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --exec-timeout=*)
+      EXEC_TIMEOUT_SECONDS="${1#*=}"
+      shift
+      ;;
     --help|-h)
       usage
       exit 0
@@ -97,6 +120,20 @@ done
 
 if [[ "$TOOL" != "claude" && "$TOOL" != "codex" ]]; then
   echo "Error: Invalid tool '$TOOL'. Must be 'claude' or 'codex'."
+  exit 1
+fi
+
+is_non_negative_integer() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
+if ! is_non_negative_integer "$PLAN_TIMEOUT_SECONDS"; then
+  echo "Error: --plan-timeout must be a non-negative integer."
+  exit 1
+fi
+
+if ! is_non_negative_integer "$EXEC_TIMEOUT_SECONDS"; then
+  echo "Error: --exec-timeout must be a non-negative integer."
   exit 1
 fi
 
@@ -129,11 +166,22 @@ repo_relative_path() {
 get_guard_ignored_files() {
   repo_relative_path "$PROGRESS_FILE"
   repo_relative_path "$PRD_FILE"
+  repo_relative_path "$LAST_BRANCH_FILE"
+}
+
+append_guard_exclusions() {
+  local array_name="$1"
+  local ignored_file
+
+  eval "$array_name+=(-- .)"
+  while IFS= read -r ignored_file; do
+    [[ -n "$ignored_file" ]] || continue
+    eval "$array_name+=(\":(exclude)$ignored_file\")"
+  done < <(get_guard_ignored_files)
 }
 
 guarded_changed_files() {
   local baseline_commit="$1"
-  local ignored_file
   local -a diff_args=(--name-only)
 
   if [[ -n "$baseline_commit" ]]; then
@@ -142,18 +190,13 @@ guarded_changed_files() {
     diff_args+=(--cached)
   fi
 
-  diff_args+=(-- .)
-  while IFS= read -r ignored_file; do
-    [[ -n "$ignored_file" ]] || continue
-    diff_args+=(":(exclude)$ignored_file")
-  done < <(get_guard_ignored_files)
+  append_guard_exclusions diff_args
 
   git diff "${diff_args[@]}" 2>/dev/null || echo ""
 }
 
 guarded_added_lines() {
   local baseline_commit="$1"
-  local ignored_file
   local -a diff_args=(--numstat)
 
   if [[ -n "$baseline_commit" ]]; then
@@ -162,13 +205,22 @@ guarded_added_lines() {
     diff_args+=(--cached)
   fi
 
-  diff_args+=(-- .)
-  while IFS= read -r ignored_file; do
-    [[ -n "$ignored_file" ]] || continue
-    diff_args+=(":(exclude)$ignored_file")
-  done < <(get_guard_ignored_files)
+  append_guard_exclusions diff_args
 
   git diff "${diff_args[@]}" 2>/dev/null | awk -F '\t' '{ if ($1 ~ /^[0-9]+$/) s += $1 } END { print s+0 }'
+}
+
+guarded_worktree_changes() {
+  local -a unstaged_args=(--name-only)
+  local -a staged_args=(--name-only --cached)
+
+  append_guard_exclusions unstaged_args
+  append_guard_exclusions staged_args
+
+  {
+    git diff "${unstaged_args[@]}" 2>/dev/null
+    git diff "${staged_args[@]}" 2>/dev/null
+  } | awk 'NF && !seen[$0]++'
 }
 
 default_plan_model() {
@@ -205,12 +257,27 @@ PLAN_PROMPT_FILE="$SCRIPT_DIR/PLAN.md"
 CLAUDE_PROMPT_FILE="$SCRIPT_DIR/CLAUDE.md"
 CODEX_PROMPT_FILE="$SCRIPT_DIR/CODEX.md"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s\n' "$SCRIPT_DIR")"
+TIMEOUT_BIN=""
 
 [[ -f "$PRD_FILE" ]] || { echo "Error: Missing $PRD_FILE"; exit 1; }
 [[ -f "$PROGRESS_FILE" ]] || { echo "# Ralph Progress Log" > "$PROGRESS_FILE"; echo "Started: $(date)" >> "$PROGRESS_FILE"; echo "---" >> "$PROGRESS_FILE"; }
 [[ -f "$PLAN_PROMPT_FILE" ]] || { echo "Error: Missing $PLAN_PROMPT_FILE"; exit 1; }
+command -v git >/dev/null 2>&1 || { echo "Error: git is required."; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "Error: jq is required."; exit 1; }
 command -v "$TOOL" >/dev/null 2>&1 || { echo "Error: '$TOOL' is not installed or not on PATH."; exit 1; }
+
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+fi
+
+if { [[ "$PLAN_TIMEOUT_SECONDS" -gt 0 ]] || [[ "$EXEC_TIMEOUT_SECONDS" -gt 0 ]]; } && [[ -z "$TIMEOUT_BIN" ]]; then
+  echo "Error: timeout support requires GNU timeout (timeout or gtimeout) on PATH."
+  exit 1
+fi
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Error: Ralph requires a git working tree."; exit 1; }
 
 if [[ -f "$PRD_FILE" && -f "$LAST_BRANCH_FILE" ]]; then
   CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
@@ -237,6 +304,63 @@ CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo ""
 if [[ -n "$CURRENT_BRANCH" ]]; then
   echo "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"
 fi
+
+ensure_no_guarded_worktree_changes() {
+  local context="$1"
+  local changes
+
+  changes="$(guarded_worktree_changes)"
+  if [[ -n "$changes" ]]; then
+    echo "Error: Tracked changes outside Ralph control files are present $context."
+    printf '%s\n' "$changes"
+    echo "Commit, stash, or discard them before continuing."
+    exit 1
+  fi
+}
+
+detect_branch_base_ref() {
+  if git show-ref --verify --quiet refs/remotes/origin/main; then
+    printf '%s\n' 'origin/main'
+  elif git show-ref --verify --quiet refs/heads/main; then
+    printf '%s\n' 'main'
+  elif git show-ref --verify --quiet refs/remotes/origin/master; then
+    printf '%s\n' 'origin/master'
+  elif git show-ref --verify --quiet refs/heads/master; then
+    printf '%s\n' 'master'
+  else
+    git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '%s\n' 'HEAD'
+  fi
+}
+
+ensure_target_branch() {
+  local target_branch="$1"
+  local current_branch base_ref
+
+  [[ -n "$target_branch" ]] || return 0
+
+  current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+  if [[ "$current_branch" == "$target_branch" ]]; then
+    return 0
+  fi
+
+  ensure_no_guarded_worktree_changes "before switching branches"
+
+  if git show-ref --verify --quiet "refs/heads/$target_branch"; then
+    echo "Checking out Ralph branch: $target_branch"
+    git checkout "$target_branch"
+    return 0
+  fi
+
+  if git show-ref --verify --quiet "refs/remotes/origin/$target_branch"; then
+    echo "Checking out Ralph branch from origin/$target_branch"
+    git checkout -b "$target_branch" --track "origin/$target_branch"
+    return 0
+  fi
+
+  base_ref="$(detect_branch_base_ref)"
+  echo "Creating Ralph branch $target_branch from $base_ref"
+  git checkout -b "$target_branch" "$base_ref"
+}
 
 json_field() {
   local json_input="$1"
@@ -280,10 +404,14 @@ set_story_status() {
      --arg ts "$timestamp" '
     (.userStories[] | select(.id == $id)) |= (
       .status = $status |
-      if $status == "passed" then .passes = true else . end |
+      if $status == "passed" then
+        .passes = true | .retryCount = 0 | .blocked = null
+      else
+        .passes = false | .blocked = null
+      end |
       if $rc != "" then .retryCount = ($rc | tonumber) else . end |
       if $status == "blocked" then .blocked = {reason: $br, failedAt: $ts} else . end |
-      if $wv == "true" then .weakValidation = true else . end
+      .weakValidation = ($wv == "true")
     )
   ' "$PRD_FILE" > "$temp_file"
   mv "$temp_file" "$PRD_FILE"
@@ -623,11 +751,22 @@ ensure_story_plan_path() {
 
 resolve_plan_abspath() {
   local plan_path="$1"
+
+  [[ -n "$plan_path" ]] || { echo "Error: Story plan path cannot be empty."; exit 1; }
+
   if [[ "$plan_path" = /* ]]; then
-    printf '%s\n' "$plan_path"
-  else
-    printf '%s\n' "$SCRIPT_DIR/$plan_path"
+    echo "Error: Story plan path must be relative to the Ralph control directory: $plan_path"
+    exit 1
   fi
+
+  case "/$plan_path/" in
+    */../*|*/./*)
+      echo "Error: Story plan path must stay within the Ralph control directory: $plan_path"
+      exit 1
+      ;;
+  esac
+
+  printf '%s\n' "$SCRIPT_DIR/$plan_path"
 }
 
 compose_plan_prompt() {
@@ -654,8 +793,10 @@ compose_plan_prompt() {
     printf -- '- Target plan path: %s\n' "$plan_rel"
     printf -- '- Target plan absolute path: %s\n' "$plan_abs"
     printf -- '- Relative plan values in the story JSON are relative to the Ralph control directory above.\n'
+    printf -- '- Ralph only accepts relative plan paths that stay inside the Ralph control directory.\n'
     printf -- '- Use these exact paths instead of inferring paths from the temporary prompt file location.\n'
     printf -- '- Stop immediately after writing the plan file.\n'
+    printf -- '- Ralph itself has already selected the working branch; do not switch to another branch.\n'
     printf -- '- Scope constraints: %s\n' "$(get_scope_json "$story_id")"
     printf -- '- Verification commands: %s\n' "$(get_verification_json "$story_id")"
     printf '\n### Selected Story JSON\n\n```json\n'
@@ -689,9 +830,12 @@ compose_execution_prompt() {
     printf -- '- Plan path: %s\n' "$plan_rel"
     printf -- '- Plan absolute path: %s\n' "$plan_abs"
     printf -- '- Relative plan values in the story JSON are relative to the Ralph control directory above.\n'
+    printf -- '- Ralph only accepts relative plan paths that stay inside the Ralph control directory.\n'
     printf -- '- Use these exact paths instead of inferring paths from the temporary prompt file location.\n'
+    printf -- '- Ralph already checked out the PRD branch before this run; stay on the current branch.\n'
     printf -- '- Implement only this story. Do not switch to another pending story.\n'
     printf -- '- Use the plan below as the primary execution guide.\n'
+    printf -- '- Scope guards ignore only Ralph control files (prd.json, progress.txt, .last-branch).\n'
     printf -- '- Scope constraints: %s\n' "$(get_scope_json "$story_id")"
     printf -- '- Verification commands: %s\n' "$(get_verification_json "$story_id")"
     printf '\n### Selected Story JSON\n\n```json\n'
@@ -705,11 +849,16 @@ compose_execution_prompt() {
 
 run_claude() {
   local model="$1"
-  local prompt_file="$2"
+  local timeout_seconds="$2"
+  local prompt_file="$3"
   local output status
 
   set +e
-  output=$(claude --dangerously-skip-permissions --print --model "$model" < "$prompt_file" 2>&1 | tee /dev/stderr)
+  if [[ "$timeout_seconds" -gt 0 ]]; then
+    output=$($TIMEOUT_BIN --foreground "$timeout_seconds" claude --dangerously-skip-permissions --print --model "$model" < "$prompt_file" 2>&1 | tee /dev/stderr)
+  else
+    output=$(claude --dangerously-skip-permissions --print --model "$model" < "$prompt_file" 2>&1 | tee /dev/stderr)
+  fi
   status=$?
   set -e
 
@@ -720,11 +869,16 @@ run_claude() {
 run_codex() {
   local model="$1"
   local reasoning="$2"
-  local prompt_file="$3"
+  local timeout_seconds="$3"
+  local prompt_file="$4"
   local output status
 
   set +e
-  output=$(codex exec --full-auto --sandbox workspace-write --model "$model" -c "model_reasoning_effort=\"$reasoning\"" - < "$prompt_file" 2>&1 | tee /dev/stderr)
+  if [[ "$timeout_seconds" -gt 0 ]]; then
+    output=$($TIMEOUT_BIN --foreground "$timeout_seconds" codex exec --full-auto --sandbox workspace-write --model "$model" -c "model_reasoning_effort=\"$reasoning\"" - < "$prompt_file" 2>&1 | tee /dev/stderr)
+  else
+    output=$(codex exec --full-auto --sandbox workspace-write --model "$model" -c "model_reasoning_effort=\"$reasoning\"" - < "$prompt_file" 2>&1 | tee /dev/stderr)
+  fi
   status=$?
   set -e
 
@@ -735,9 +889,16 @@ run_codex() {
 run_agent_capture() {
   local mode="$1"
   local prompt_file="$2"
+  local timeout_seconds
 
   AGENT_OUTPUT=""
   AGENT_STATUS=0
+
+  if [[ "$mode" == "plan" ]]; then
+    timeout_seconds="$PLAN_TIMEOUT_SECONDS"
+  else
+    timeout_seconds="$EXEC_TIMEOUT_SECONDS"
+  fi
 
   if [[ "$TOOL" == "claude" ]]; then
     local model="$EXEC_MODEL"
@@ -745,7 +906,7 @@ run_agent_capture() {
       model="$PLAN_MODEL"
     fi
 
-    if AGENT_OUTPUT="$(run_claude "$model" "$prompt_file")"; then
+    if AGENT_OUTPUT="$(run_claude "$model" "$timeout_seconds" "$prompt_file")"; then
       AGENT_STATUS=0
     else
       AGENT_STATUS=$?
@@ -761,7 +922,7 @@ run_agent_capture() {
       reasoning="$EXEC_REASONING"
     fi
 
-    if AGENT_OUTPUT="$(run_codex "$model" "$reasoning" "$prompt_file")"; then
+    if AGENT_OUTPUT="$(run_codex "$model" "$reasoning" "$timeout_seconds" "$prompt_file")"; then
       AGENT_STATUS=0
     else
       AGENT_STATUS=$?
@@ -772,12 +933,17 @@ run_agent_capture() {
 echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
 echo "Planning model: $PLAN_MODEL${PLAN_REASONING:+ ($PLAN_REASONING reasoning)}"
 echo "Execution model: $EXEC_MODEL${EXEC_REASONING:+ ($EXEC_REASONING reasoning)}"
+echo "Planning timeout: ${PLAN_TIMEOUT_SECONDS}s | Execution timeout: ${EXEC_TIMEOUT_SECONDS}s"
+
+ensure_target_branch "$CURRENT_BRANCH"
 
 for i in $(seq 1 "$MAX_ITERATIONS"); do
   echo ""
   echo "==============================================================="
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
+
+  ensure_no_guarded_worktree_changes "before starting iteration $i"
 
   NEXT_STORY_JSON="$(get_next_story_json)"
 
@@ -818,6 +984,11 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     run_agent_capture plan "$TEMP_PROMPT_FILE"
     rm -f "$TEMP_PROMPT_FILE"
 
+    if [[ "$AGENT_STATUS" -eq 124 ]]; then
+      echo "Error: Planning timed out after ${PLAN_TIMEOUT_SECONDS}s before writing a usable plan."
+      exit 1
+    fi
+
     if [[ ! -s "$STORY_PLAN_ABS" ]]; then
       echo "Error: Planning run finished without creating $STORY_PLAN_REL"
       exit 1
@@ -828,6 +999,7 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     fi
 
     echo "Plan generated at $STORY_PLAN_REL. Exiting before implementation."
+    exit 0
   fi
 
   TEMP_PROMPT_FILE="$(mktemp)"
@@ -845,7 +1017,9 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
   run_agent_capture execute "$TEMP_PROMPT_FILE"
   rm -f "$TEMP_PROMPT_FILE"
 
-  if [[ "$AGENT_STATUS" -ne 0 ]]; then
+  if [[ "$AGENT_STATUS" -eq 124 ]]; then
+    echo "Warning: $TOOL timed out after ${EXEC_TIMEOUT_SECONDS}s"
+  elif [[ "$AGENT_STATUS" -ne 0 ]]; then
     echo "Warning: $TOOL exited with status $AGENT_STATUS"
   fi
 
@@ -869,9 +1043,16 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
 
     # Check requiresApproval
     REQUIRES_APPROVAL="$(json_field "$NEXT_STORY_JSON" '.requiresApproval // false')"
+    if [[ "$WEAK_VAL" == "true" && "$WEAK_VALIDATION_REQUIRES_APPROVAL" == "true" ]]; then
+      REQUIRES_APPROVAL="true"
+    fi
+
     if [[ "$REQUIRES_APPROVAL" == "true" ]]; then
       echo ""
       echo "Story $STORY_ID requires human approval. Pausing."
+      if [[ "$WEAK_VAL" == "true" ]]; then
+        echo "Reason: weak validation passed without project-specific verification."
+      fi
       echo "Review the changes, then press Enter to continue or Ctrl-C to abort."
       if [[ -t 0 ]]; then
         read -r

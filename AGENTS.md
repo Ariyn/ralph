@@ -49,6 +49,8 @@ npm run dev
 - Memory persists via git history, `progress.txt`, and `prd.json`
 - Future stories should have plan files in `plans/`; missing plans are generated in a separate planning run before implementation
 - Ralph control files (`prd.json`, `progress.txt`, `plans/*.md`) are resolved relative to the Ralph directory, and runtime prompts should include explicit paths because the generated prompt file itself lives in a temporary location
+- Ralph itself should enforce the PRD branch before invoking an agent; agent prompts should treat branch selection as pre-resolved runtime context
+- Scope and cleanliness guards should ignore only Ralph control files (`prd.json`, `progress.txt`, `.last-branch`), not arbitrary project files
 - Codex skills should be installed in `.agents/skills` (repo-local) or `~/.agents/skills` (user-level); placing skills only under `scripts/ralph/skills` is not enough for Codex auto-discovery
 - `scripts/install.sh` uses checksum manifest (`scripts/ralph/.ralph-install-checksums`) and keeps locally modified managed files unchanged
 - Stories should be small enough to complete in one context window

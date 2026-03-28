@@ -157,11 +157,13 @@ Ralph will:
 2. Pick the highest priority story where `passes: false`
 3. Generate the story plan first if the plan file is missing, then exit
 4. Read the existing plan file and implement that single story
-5. Run quality checks (typecheck, tests)
-6. Commit if checks pass
+5. Run Ralph's validation cascade after the agent finishes (story verification commands first, then `.ralph/validate.sh`, then guards-only weak validation if neither exists)
+6. Pause for approval when `requiresApproval: true`, and by default also pause when a story only passed weak validation
 7. Update `prd.json` to mark story as `passes: true`
 8. Append learnings to `progress.txt`
 9. Repeat until all stories pass or max iterations reached
+
+Ralph now also enforces the PRD branch before the loop starts, refuses absolute or traversing plan paths, and supports `--plan-timeout` / `--exec-timeout` for agent runs.
 
 ## Key Files
 
