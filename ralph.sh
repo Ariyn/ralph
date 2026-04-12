@@ -16,6 +16,7 @@ Options:
   --exec-reasoning LEVEL    codex only: implementation reasoning effort (default: medium)
   --plan-timeout SECONDS    planning timeout in seconds, 0 disables timeout (default: 900)
   --exec-timeout SECONDS    execution timeout in seconds, 0 disables timeout (default: 3600)
+  -f                        do not require approval when only weak validation passes
   --help                    show this message
 
 Defaults:
@@ -99,6 +100,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --exec-timeout=*)
       EXEC_TIMEOUT_SECONDS="${1#*=}"
+      shift
+      ;;
+    -f)
+      WEAK_VALIDATION_REQUIRES_APPROVAL="false"
       shift
       ;;
     --help|-h)
